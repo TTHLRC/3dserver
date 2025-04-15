@@ -1,36 +1,58 @@
-import mysql.connector
-from mysql.connector import Error
+import psycopg2
+from psycopg2 import Error
+from psycopg2.extras import DictCursor
 import os
+import json
 
 # 数据库配置
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
-    'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'root'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'postgres'),
+    'database': os.getenv('DB_NAME', 'threed_db')
 }
 
 def create_database():
     try:
-        connection = mysql.connector.connect(**DB_CONFIG)
-        cursor = connection.cursor()
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {os.getenv('DB_NAME', '3d')}")
-        print("Database created successfully")
+        # 连接到默认的postgres数据库
+        conn = psycopg2.connect(
+            host=DB_CONFIG['host'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password'],
+            database='postgres'
+        )
+        conn.autocommit = True
+        cursor = conn.cursor()
+        
+        # 检查数据库是否存在
+        cursor.execute(f"SELECT 1 FROM pg_database WHERE datname = '{DB_CONFIG['database']}'")
+        exists = cursor.fetchone()
+        
+        if not exists:
+            cursor.execute(f"CREATE DATABASE {DB_CONFIG['database']}")
+            print("Database created successfully")
+            
     except Error as e:
         print(f"Error creating database: {e}")
     finally:
-        if connection.is_connected():
-            cursor.close()
-            connection.close()
+        if 'conn' in locals():
+            if 'cursor' in locals():
+                cursor.close()
+            conn.close()
 
 def get_db_connection():
     try:
-        config = DB_CONFIG.copy()
-        config['database'] = os.getenv('DB_NAME', '3d')
-        connection = mysql.connector.connect(**config)
+        connection = psycopg2.connect(
+            host=DB_CONFIG['host'],
+            database=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password'],
+            cursor_factory=DictCursor
+        )
         print("Database connected successfully")
         return connection
     except Error as e:
-        print(f"Error connecting to MySQL Database: {e}")
+        print(f"Error connecting to PostgreSQL Database: {e}")
         return None
 
 def check_tables_exist():
@@ -41,18 +63,28 @@ def check_tables_exist():
     
     try:
         cursor = connection.cursor()
-        cursor.execute("SHOW TABLES LIKE 'users'")
-        users_exists = cursor.fetchone() is not None
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'users'
+            )
+        """)
+        users_exists = cursor.fetchone()[0]
         
-        cursor.execute("SHOW TABLES LIKE 'user_data'")
-        user_data_exists = cursor.fetchone() is not None
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'user_data'
+            )
+        """)
+        user_data_exists = cursor.fetchone()[0]
         
         return users_exists and user_data_exists
     except Error as e:
         print(f"Error checking tables: {e}")
         return False
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close()
 
@@ -74,27 +106,24 @@ def init_db():
             # 创建用户表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    id SERIAL PRIMARY KEY,
                     username VARCHAR(50) UNIQUE NOT NULL,
                     email VARCHAR(100) UNIQUE NOT NULL,
                     hashed_password VARCHAR(100) NOT NULL,
                     is_active BOOLEAN DEFAULT TRUE,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
             # 创建用户数据表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_data (
-                    id INT NOT NULL AUTO_INCREMENT,
-                    user_id INT NOT NULL COMMENT '用户id',
-                    content JSON NULL DEFAULT NULL COMMENT '3D数据',
-                    created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (id) USING BTREE,
-                    INDEX user_id (user_id ASC) USING BTREE,
-                    CONSTRAINT user_data_ibfk_1 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
-                ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    content JSONB DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             """)
             
             connection.commit()
@@ -103,7 +132,7 @@ def init_db():
         except Error as e:
             print(f"Error creating tables: {e}")
         finally:
-            if connection.is_connected():
+            if connection:
                 cursor.close()
                 connection.close()
 
