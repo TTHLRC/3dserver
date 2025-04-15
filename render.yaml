@@ -1,30 +1,30 @@
 services:
   - type: web
-    name: 3d-server
+    name: threed-server
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DB_HOST
         fromDatabase:
-          name: 3d-db
+          name: threed_db
           property: host
       - key: DB_USER
         fromDatabase:
-          name: 3d-db
+          name: threed_db
           property: user
       - key: DB_PASSWORD
         fromDatabase:
-          name: 3d-db
+          name: threed_db
           property: password
       - key: DB_NAME
         fromDatabase:
-          name: 3d-db
+          name: threed_db
           property: database
       - key: SECRET_KEY
         generateValue: true
 
 databases:
-  - name: 3d-db
-    databaseName: 3d
+  - name: threed_db
+    databaseName: threed_db
     ipAllowList: [] 
