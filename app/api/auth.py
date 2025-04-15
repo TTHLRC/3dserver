@@ -4,8 +4,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-import mysql.connector
-from mysql.connector import Error
+import psycopg2
+from psycopg2 import Error
+from psycopg2.extras import DictCursor
 
 from app.database.database import get_db_connection
 from app.schemas import schemas
@@ -53,18 +54,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=500, detail="Database connection failed")
         
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         user = cursor.fetchone()
         
         if user is None:
             raise credentials_exception
             
-        return user
+        return dict(zip([desc[0] for desc in cursor.description], user))
         
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close() 

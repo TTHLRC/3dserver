@@ -2,9 +2,9 @@ from datetime import timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List
-import mysql.connector
-from mysql.connector import Error
-import json
+import psycopg2
+from psycopg2 import Error
+from psycopg2.extras import DictCursor
 
 from app.database.database import get_db_connection
 from app.api import auth
@@ -20,7 +20,7 @@ def register(user: schemas.UserCreate):
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         
         # 检查用户名是否已存在
         cursor.execute("SELECT id FROM users WHERE username = %s", (user.username,))
@@ -35,7 +35,7 @@ def register(user: schemas.UserCreate):
         # 创建新用户
         hashed_password = auth.get_password_hash(user.password)
         cursor.execute(
-            "INSERT INTO users (username, email, hashed_password) VALUES (%s, %s, %s)",
+            "INSERT INTO users (username, email, hashed_password) VALUES (%s, %s, %s) RETURNING id",
             (user.username, user.email, hashed_password)
         )
         connection.commit()
@@ -45,7 +45,7 @@ def register(user: schemas.UserCreate):
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close()
 
@@ -57,7 +57,7 @@ async def login_for_access_token(login_data: schemas.Login):
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         
         # 根据用户名或邮箱查询用户
         if login_data.username:
@@ -83,7 +83,7 @@ async def login_for_access_token(login_data: schemas.Login):
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close()
 
@@ -98,7 +98,7 @@ def create_user_data(
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         
         # 检查用户是否已有数据
         cursor.execute("SELECT id FROM user_data WHERE user_id = %s", (current_user['id'],))
@@ -123,7 +123,7 @@ def create_user_data(
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close()
 
@@ -135,22 +135,18 @@ def read_user_data(current_user: dict = Depends(auth.get_current_user)):
         raise HTTPException(status_code=500, detail="Database connection failed")
     
     try:
-        cursor = connection.cursor(dictionary=True)
+        cursor = connection.cursor()
         cursor.execute("SELECT * FROM user_data WHERE user_id = %s", (current_user['id'],))
         user_data = cursor.fetchone()
         
         if not user_data:
             raise HTTPException(status_code=404, detail="No data found for this user")
         
-        # 将JSON字符串转换为Python字典
-        if isinstance(user_data['content'], str):
-            user_data['content'] = json.loads(user_data['content'])
-        
         return user_data
         
     except Error as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if connection.is_connected():
+        if connection:
             cursor.close()
             connection.close() 
